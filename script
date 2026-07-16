@@ -104,6 +104,17 @@ Title.BackgroundTransparency = 1
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 30
 
+-- Small text in the bottom right corner of the Main GUI
+local ToggleInstructions = Instance.new("TextLabel", MainFrame)
+ToggleInstructions.Text = "press P to open/close the GUI"
+ToggleInstructions.TextColor3 = Color3.fromRGB(150, 150, 150) -- Subtle gray color
+ToggleInstructions.Size = UDim2.new(0, 180, 0, 20)
+ToggleInstructions.Position = UDim2.new(1, -190, 1, -25) -- Aligned to the bottom right
+ToggleInstructions.BackgroundTransparency = 1
+ToggleInstructions.Font = Enum.Font.SourceSansItalic
+ToggleInstructions.TextSize = 14
+ToggleInstructions.TextXAlignment = Enum.TextXAlignment.Right
+
 local function createOption(text, yPos)
     local btn = Instance.new("TextButton", MainFrame)
     btn.Size = UDim2.new(0, 50, 0, 30)
