@@ -1,0 +1,464 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- Configuration Variables
+local aimMode = "None" -- "Nearest" or "Center"
+local isAiming = false
+local guiVisible = true
+local isListeningForBind = false
+
+-- Toggle & Customization Settings
+local keepLockingVictim = false 
+local lockToCenter = true       
+local showLockSymbol = true     
+local targetPartName = "Head"   
+
+-- 50% Size Increase & 75% Opacity Configurations
+local symbolSize = 200          -- Boosted from 135 to 200 (50% larger)
+local targetOpacity = 0.25       -- 75% Opacity (0.25 Transparency)
+
+-- Target Persistence Variables
+local currentLockedTarget = nil
+
+-- Dynamic Configurations
+local AIM_KEY = Enum.UserInputType.MouseButton2 
+local isKeyboardBind = false                     
+
+-- Create GUI Container
+local ScreenGui = Instance.new("ScreenGui", LocalPlayer:WaitForChild("PlayerGui"))
+ScreenGui.Name = "LockOnGui"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.DisplayOrder = 999999999 
+ScreenGui.IgnoreGuiInset = true   
+
+-- ============================================================================
+-- FIXED ACCURATE DIAMOND RETICLE SETUP
+-- ============================================================================
+local LockIndicator = Instance.new("BillboardGui")
+LockIndicator.Name = "TargetLockOnIndicator"
+LockIndicator.Size = UDim2.new(0, symbolSize, 0, symbolSize) 
+LockIndicator.AlwaysOnTop = true
+LockIndicator.Enabled = false
+
+local Canvas = Instance.new("Frame", LockIndicator)
+Canvas.Size = UDim2.new(1, 0, 1, 0)
+Canvas.BackgroundTransparency = 1
+
+local function createLine(parent, size, pos, rotation)
+    local line = Instance.new("Frame", parent)
+    line.Size = size
+    line.Position = pos
+    line.AnchorPoint = Vector2.new(0.5, 0.5)
+    line.Rotation = rotation
+    line.BackgroundColor3 = Color3.fromRGB(0, 255, 255)
+    line.BackgroundTransparency = targetOpacity -- Set 75% Opacity
+    line.BorderSizePixel = 0
+    return line
+end
+
+-- Scaled edge lengths to match the new 50% larger frame size nicely
+local barThickness = 3
+local barLength = 82
+
+local lineTopLeft = createLine(Canvas, UDim2.new(0, barLength, 0, barThickness), UDim2.new(0.31, 0, 0.31, 0), -45)
+local lineTopRight = createLine(Canvas, UDim2.new(0, barLength, 0, barThickness), UDim2.new(0.69, 0, 0.31, 0), 45)
+local lineBotLeft = createLine(Canvas, UDim2.new(0, barLength, 0, barThickness), UDim2.new(0.31, 0, 0.69, 0), 45)
+local lineBotRight = createLine(Canvas, UDim2.new(0, barLength, 0, barThickness), UDim2.new(0.69, 0, 0.69, 0), -45)
+
+-- Center Inner Diamond Point
+local CenterDot = Instance.new("Frame", Canvas)
+CenterDot.Size = UDim2.new(0, 12, 0, 12)
+CenterDot.Position = UDim2.new(0.5, 0, 0.5, 0)
+CenterDot.AnchorPoint = Vector2.new(0.5, 0.5)
+CenterDot.BackgroundTransparency = 1
+CenterDot.Rotation = 45
+
+local CenterStroke = Instance.new("UIStroke", CenterDot)
+CenterStroke.Color = Color3.fromRGB(0, 255, 255)
+CenterStroke.Thickness = 2
+CenterStroke.Transparency = targetOpacity -- Set 75% Opacity
+CenterStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+
+-- ============================================================================
+-- MAIN MENU GUI
+-- ============================================================================
+local MainFrame = Instance.new("Frame", ScreenGui)
+MainFrame.Size = UDim2.new(0, 350, 0, 240)
+MainFrame.Position = UDim2.new(0.5, -175, 0.5, -120)
+MainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+MainFrame.BorderSizePixel = 4 
+MainFrame.Active = true
+MainFrame.Draggable = true 
+
+Instance.new("UICorner", MainFrame)
+
+local Title = Instance.new("TextLabel", MainFrame)
+Title.Text = "Lock on script by Tris"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Size = UDim2.new(1, 0, 0, 50)
+Title.BackgroundTransparency = 1
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 30
+
+local function createOption(text, yPos)
+    local btn = Instance.new("TextButton", MainFrame)
+    btn.Size = UDim2.new(0, 50, 0, 30)
+    btn.Position = UDim2.new(0.1, 0, 0, yPos)
+    btn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+    btn.Text = ""
+    btn.AutoButtonColor = false
+    local btnCorner = Instance.new("UICorner", btn)
+    btnCorner.CornerRadius = UDim.new(1, 0)
+
+    local label = Instance.new("TextLabel", MainFrame)
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(0, 200, 0) 
+    label.Size = UDim2.new(0.7, 0, 0, 40)
+    label.Position = UDim2.new(0.3, 0, 0, yPos - 5)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.SourceSans
+    label.TextSize = 22
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    
+    return btn
+end
+
+local btnNearest = createOption("Lock on the nearest", 65)
+local btnCenter = createOption("Lock on the nearest to\nthe center of the screen", 115)
+
+local btnSettings = Instance.new("TextButton", MainFrame)
+btnSettings.Size = UDim2.new(0, 100, 0, 30)
+btnSettings.Position = UDim2.new(0.5, -50, 0, 190)
+btnSettings.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+btnSettings.TextColor3 = Color3.fromRGB(255, 255, 255)
+btnSettings.Font = Enum.Font.SourceSansBold
+btnSettings.TextSize = 18
+btnSettings.Text = "Settings"
+Instance.new("UICorner", btnSettings)
+
+-- ============================================================================
+-- SETTINGS MENU GUI
+-- ============================================================================
+local SettingsFrame = Instance.new("Frame", ScreenGui)
+SettingsFrame.Size = UDim2.new(0, 350, 0, 340) 
+SettingsFrame.Position = MainFrame.Position
+SettingsFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+SettingsFrame.BorderSizePixel = 4
+SettingsFrame.Active = true
+SettingsFrame.Draggable = true
+SettingsFrame.Visible = false
+
+Instance.new("UICorner", SettingsFrame)
+
+local SettingsTitle = Instance.new("TextLabel", SettingsFrame)
+SettingsTitle.Text = "Configuration Settings"
+SettingsTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+SettingsTitle.Size = UDim2.new(1, 0, 0, 40)
+SettingsTitle.BackgroundTransparency = 1
+SettingsTitle.Font = Enum.Font.SourceSansBold
+SettingsTitle.TextSize = 24
+
+local function createSettingToggle(text, yPos, defaultOn)
+    local btn = Instance.new("TextButton", SettingsFrame)
+    btn.Size = UDim2.new(0, 40, 0, 25)
+    btn.Position = UDim2.new(0.1, 5, 0, yPos)
+    btn.BackgroundColor3 = defaultOn and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(200, 0, 0)
+    btn.Text = ""
+    btn.AutoButtonColor = false
+    local corner = Instance.new("UICorner", btn)
+    corner.CornerRadius = UDim.new(1, 0)
+
+    local label = Instance.new("TextLabel", SettingsFrame)
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.Size = UDim2.new(0.7, 0, 0, 30)
+    label.Position = UDim2.new(0.3, 0, 0, yPos - 3)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.SourceSans
+    label.TextSize = 18
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    return btn
+end
+
+local btnRebind = Instance.new("TextButton", SettingsFrame)
+btnRebind.Size = UDim2.new(0, 280, 0, 40)
+btnRebind.Position = UDim2.new(0.5, -140, 0, 50)
+btnRebind.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+btnRebind.BorderColor3 = Color3.fromRGB(100, 100, 100)
+btnRebind.BorderSizePixel = 2
+btnRebind.Font = Enum.Font.SourceSans
+btnRebind.TextSize = 18
+btnRebind.TextColor3 = Color3.fromRGB(255, 215, 0)
+btnRebind.Text = "click me to change the lock key"
+
+local btnSticky = createSettingToggle("Keep locking on the locked victim", 110, false)
+local btnCenterLock = createSettingToggle("Lock target in middle of screen", 155, true)
+local btnShowSymbol = createSettingToggle("Show cyan target lock symbol", 200, true)
+
+-- LOCK-ON PART SELECTION DROPDOWN
+local dropdownLabel = Instance.new("TextLabel", SettingsFrame)
+dropdownLabel.Text = "Lock Target Part:"
+dropdownLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+dropdownLabel.Size = UDim2.new(0, 120, 0, 30)
+dropdownLabel.Position = UDim2.new(0.1, 5, 0, 245)
+dropdownLabel.BackgroundTransparency = 1
+dropdownLabel.Font = Enum.Font.SourceSans
+dropdownLabel.TextSize = 18
+dropdownLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local btnDropdownHeader = Instance.new("TextButton", SettingsFrame)
+btnDropdownHeader.Size = UDim2.new(0, 150, 0, 30)
+btnDropdownHeader.Position = UDim2.new(0.45, 0, 0, 245)
+btnDropdownHeader.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+btnDropdownHeader.TextColor3 = Color3.fromRGB(0, 255, 255)
+btnDropdownHeader.Font = Enum.Font.SourceSansBold
+btnDropdownHeader.TextSize = 16
+btnDropdownHeader.Text = "Head ▼"
+Instance.new("UICorner", btnDropdownHeader)
+
+local DropdownContainer = Instance.new("Frame", SettingsFrame)
+DropdownContainer.Size = UDim2.new(0, 150, 0, 90)
+DropdownContainer.Position = UDim2.new(0.45, 0, 0, 275)
+DropdownContainer.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+DropdownContainer.BorderSizePixel = 1
+DropdownContainer.BorderColor3 = Color3.fromRGB(60, 60, 60)
+DropdownContainer.Visible = false
+DropdownContainer.ZIndex = 10 
+
+local function createDropdownItem(name, yOffset)
+    local btn = Instance.new("TextButton", DropdownContainer)
+    btn.Size = UDim2.new(1, 0, 0, 30)
+    btn.Position = UDim2.new(0, 0, 0, yOffset)
+    btn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.SourceSans
+    btn.TextSize = 15
+    btn.Text = name
+    btn.ZIndex = 11
+
+    btn.MouseEnter:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50) end)
+    btn.MouseLeave:Connect(function() btn.BackgroundColor3 = Color3.fromRGB(25, 25, 25) end)
+    
+    btn.MouseButton1Click:Connect(function()
+        targetPartName = name
+        btnDropdownHeader.Text = name .. " ▼"
+        DropdownContainer.Visible = false
+    end)
+end
+
+createDropdownItem("Head", 0)
+createDropdownItem("Torso", 30)
+createDropdownItem("HumanoidRootPart", 60)
+
+btnDropdownHeader.MouseButton1Click:Connect(function()
+    DropdownContainer.Visible = not DropdownContainer.Visible
+end)
+
+-- Exit/Back Button
+local btnBack = Instance.new("TextButton", SettingsFrame)
+btnBack.Size = UDim2.new(0, 100, 0, 30)
+btnBack.Position = UDim2.new(0.5, -50, 0, 295) 
+btnBack.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+btnBack.TextColor3 = Color3.fromRGB(255, 255, 255)
+btnBack.Font = Enum.Font.SourceSansBold
+btnBack.TextSize = 18
+btnBack.Text = "Exit"
+Instance.new("UICorner", btnBack)
+
+-- Sync windows
+MainFrame:GetPropertyChangedSignal("Position"):Connect(function()
+    if MainFrame.Visible then SettingsFrame.Position = MainFrame.Position end
+end)
+SettingsFrame:GetPropertyChangedSignal("Position"):Connect(function()
+    if SettingsFrame.Visible then MainFrame.Position = SettingsFrame.Position end
+end)
+
+-- ============================================================================
+-- INTERACTIVE TOGGLES AND LISTENERS
+-- ============================================================================
+
+RunService.RenderStepped:Connect(function()
+    local hue = tick() % 5 / 5 
+    local rainbowColor = Color3.fromHSV(hue, 1, 1)
+    MainFrame.BorderColor3 = rainbowColor
+    SettingsFrame.BorderColor3 = rainbowColor
+end)
+
+btnSettings.MouseButton1Click:Connect(function()
+    MainFrame.Visible = false
+    SettingsFrame.Visible = true
+end)
+
+btnBack.MouseButton1Click:Connect(function()
+    isListeningForBind = false
+    DropdownContainer.Visible = false
+    if btnRebind.Text == "press the key" then btnRebind.Text = "click me to change the lock key" end
+    SettingsFrame.Visible = false
+    MainFrame.Visible = true
+end)
+
+btnNearest.MouseButton1Click:Connect(function()
+    if aimMode == "Nearest" then aimMode = "None" btnNearest.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+    else aimMode = "Nearest" btnNearest.BackgroundColor3 = Color3.fromRGB(0, 255, 0) btnCenter.BackgroundColor3 = Color3.fromRGB(200, 0, 0) end
+end)
+
+btnCenter.MouseButton1Click:Connect(function()
+    if aimMode == "Center" then aimMode = "None" btnCenter.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+    else aimMode = "Center" btnCenter.BackgroundColor3 = Color3.fromRGB(0, 255, 0) btnNearest.BackgroundColor3 = Color3.fromRGB(200, 0, 0) end
+end)
+
+btnSticky.MouseButton1Click:Connect(function()
+    keepLockingVictim = not keepLockingVictim
+    btnSticky.BackgroundColor3 = keepLockingVictim and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(200, 0, 0)
+    if not keepLockingVictim then currentLockedTarget = nil end
+end)
+
+btnCenterLock.MouseButton1Click:Connect(function()
+    lockToCenter = not lockToCenter
+    btnCenterLock.BackgroundColor3 = lockToCenter and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(200, 0, 0)
+end)
+
+btnShowSymbol.MouseButton1Click:Connect(function()
+    showLockSymbol = not showLockSymbol
+    btnShowSymbol.BackgroundColor3 = showLockSymbol and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(200, 0, 0)
+    if not showLockSymbol then LockIndicator.Enabled = false end
+end)
+
+btnRebind.MouseButton1Click:Connect(function()
+    isListeningForBind = true
+    btnRebind.Text = "press the key"
+end)
+
+-- ============================================================================
+-- TARGETING AND ENGINE UPDATE
+-- ============================================================================
+
+local function getTargetPart(character)
+    if not character then return nil end
+    local part = character:FindFirstChild(targetPartName)
+    if not part and targetPartName == "Torso" then
+        part = character:FindFirstChild("UpperTorso") or character:FindFirstChild("LowerTorso")
+    end
+    return part or character:FindFirstChild("Head") 
+end
+
+local function getTarget()
+    if keepLockingVictim and currentLockedTarget then
+        local p = currentLockedTarget
+        if p and p.Parent and p.Character and getTargetPart(p.Character) and p.Character:FindFirstChild("Humanoid") then
+            if p.Character.Humanoid.Health > 0 then return p end
+        end
+        currentLockedTarget = nil
+    end
+
+    local closestPlayer = nil
+    local shortestDist = math.huge
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
+            local tPart = getTargetPart(p.Character)
+            if tPart then
+                if aimMode == "Nearest" then
+                    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head") then
+                        local dist = (LocalPlayer.Character.Head.Position - tPart.Position).Magnitude
+                        if dist < shortestDist then shortestDist = dist closestPlayer = p end
+                    end
+                elseif aimMode == "Center" then
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(tPart.Position)
+                    if onScreen then
+                        local dist = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+                        if dist < shortestDist then shortestDist = dist closestPlayer = p end
+                    end
+                end
+            end
+        end
+    end
+
+    if keepLockingVictim and closestPlayer then currentLockedTarget = closestPlayer end
+    return closestPlayer
+end
+
+-- ============================================================================
+-- INPUT CONTROLLER
+-- ============================================================================
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if not gpe and input.KeyCode == Enum.KeyCode.P then
+        guiVisible = not guiVisible
+        MainFrame.Visible = guiVisible
+        if not guiVisible then SettingsFrame.Visible = false DropdownContainer.Visible = false end
+        return
+    end
+
+    if isListeningForBind then
+        if input.UserInputType == Enum.UserInputType.Keyboard then
+            AIM_KEY = input.KeyCode isKeyboardBind = true
+            btnRebind.Text = "Bound to: " .. input.KeyCode.Name isListeningForBind = false
+        elseif input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.MouseButton3 then
+            AIM_KEY = input.UserInputType isKeyboardBind = false
+            btnRebind.Text = "Bound to: " .. input.UserInputType.Name isListeningForBind = false
+        end
+        return
+    end
+
+    if gpe then return end
+    local activated = isKeyboardBind and (input.KeyCode == AIM_KEY) or (input.UserInputType == AIM_KEY)
+    if activated then isAiming = true end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    local deactivated = isKeyboardBind and (input.KeyCode == AIM_KEY) or (input.UserInputType == AIM_KEY)
+    if deactivated then
+        isAiming = false
+        currentLockedTarget = nil 
+        LockIndicator.Enabled = false 
+    end
+end)
+
+-- Main execution frame step
+RunService.RenderStepped:Connect(function()
+    if isAiming and aimMode ~= "None" then
+        local target = getTarget()
+        if target and target.Character then
+            local tPart = getTargetPart(target.Character)
+            if tPart then
+                if showLockSymbol then
+                    LockIndicator.Adornee = tPart
+                    LockIndicator.Parent = ScreenGui 
+                    LockIndicator.Enabled = true
+                else
+                    LockIndicator.Enabled = false
+                end
+                
+                if lockToCenter then
+                    Camera.CFrame = CFrame.new(Camera.CFrame.Position, tPart.Position)
+                else
+                    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                        local hrp = LocalPlayer.Character.HumanoidRootPart
+                        local targetPos = tPart.Position
+                        
+                        local lookAtPosHorizontal = Vector3.new(targetPos.X, hrp.Position.Y, targetPos.Z)
+                        hrp.CFrame = CFrame.new(hrp.Position, lookAtPosHorizontal)
+                        
+                        local cameraPos = Camera.CFrame.Position
+                        local directLookDirection = (targetPos - cameraPos).Unit
+                        local finalLookDirection = Vector3.new(hrp.CFrame.LookVector.X, directLookDirection.Y, hrp.CFrame.LookVector.Z).Unit
+                        
+                        Camera.CFrame = CFrame.lookAt(cameraPos, cameraPos + finalLookDirection)
+                    end
+                end
+            else
+                LockIndicator.Enabled = false
+            end
+        else
+            LockIndicator.Enabled = false 
+        end
+    else
+        LockIndicator.Enabled = false 
+    end
+end)
