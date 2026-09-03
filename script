@@ -16,6 +16,7 @@ local keepLockingVictim = false
 local lockToCenter = true       
 local showLockSymbol = true     
 local targetPartName = "Head"   
+local isToggleMode = false -- New Toggle Mode Feature
 
 -- 50% Size Increase & 75% Opacity Configurations
 local symbolSize = 200          -- Boosted from 135 to 200 (50% larger)
@@ -60,7 +61,7 @@ local function createLine(parent, size, pos, rotation)
     return line
 end
 
--- Scaled edge lengths to match the new 50% larger frame size nicely
+-- Scaled edge lengths to match the frame size
 local barThickness = 3
 local barLength = 82
 
@@ -155,7 +156,7 @@ Instance.new("UICorner", btnSettings)
 -- SETTINGS MENU GUI
 -- ============================================================================
 local SettingsFrame = Instance.new("Frame", ScreenGui)
-SettingsFrame.Size = UDim2.new(0, 350, 0, 340) 
+SettingsFrame.Size = UDim2.new(0, 350, 0, 380) -- Expanded size for new toggle setting
 SettingsFrame.Position = MainFrame.Position
 SettingsFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 SettingsFrame.BorderSizePixel = 4
@@ -198,7 +199,7 @@ end
 
 local btnRebind = Instance.new("TextButton", SettingsFrame)
 btnRebind.Size = UDim2.new(0, 280, 0, 40)
-btnRebind.Position = UDim2.new(0.5, -140, 0, 50)
+btnRebind.Position = UDim2.new(0.5, -140, 0, 45)
 btnRebind.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 btnRebind.BorderColor3 = Color3.fromRGB(100, 100, 100)
 btnRebind.BorderSizePixel = 2
@@ -207,16 +208,17 @@ btnRebind.TextSize = 18
 btnRebind.TextColor3 = Color3.fromRGB(255, 215, 0)
 btnRebind.Text = "click me to change the lock key"
 
-local btnSticky = createSettingToggle("Keep locking on the locked victim", 110, false)
-local btnCenterLock = createSettingToggle("Lock target in middle of screen", 155, true)
-local btnShowSymbol = createSettingToggle("Show cyan target lock symbol", 200, true)
+local btnToggleMode = createSettingToggle("Toggle mode (click once to lock)", 95, false)
+local btnSticky = createSettingToggle("Keep locking on the locked victim", 140, false)
+local btnCenterLock = createSettingToggle("Lock target in middle of screen", 185, true)
+local btnShowSymbol = createSettingToggle("Show cyan target lock symbol", 230, true)
 
 -- LOCK-ON PART SELECTION DROPDOWN
 local dropdownLabel = Instance.new("TextLabel", SettingsFrame)
 dropdownLabel.Text = "Lock Target Part:"
 dropdownLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 dropdownLabel.Size = UDim2.new(0, 120, 0, 30)
-dropdownLabel.Position = UDim2.new(0.1, 5, 0, 245)
+dropdownLabel.Position = UDim2.new(0.1, 5, 0, 275)
 dropdownLabel.BackgroundTransparency = 1
 dropdownLabel.Font = Enum.Font.SourceSans
 dropdownLabel.TextSize = 18
@@ -224,7 +226,7 @@ dropdownLabel.TextXAlignment = Enum.TextXAlignment.Left
 
 local btnDropdownHeader = Instance.new("TextButton", SettingsFrame)
 btnDropdownHeader.Size = UDim2.new(0, 150, 0, 30)
-btnDropdownHeader.Position = UDim2.new(0.45, 0, 0, 245)
+btnDropdownHeader.Position = UDim2.new(0.45, 0, 0, 275)
 btnDropdownHeader.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 btnDropdownHeader.TextColor3 = Color3.fromRGB(0, 255, 255)
 btnDropdownHeader.Font = Enum.Font.SourceSansBold
@@ -234,7 +236,7 @@ Instance.new("UICorner", btnDropdownHeader)
 
 local DropdownContainer = Instance.new("Frame", SettingsFrame)
 DropdownContainer.Size = UDim2.new(0, 150, 0, 90)
-DropdownContainer.Position = UDim2.new(0.45, 0, 0, 275)
+DropdownContainer.Position = UDim2.new(0.45, 0, 0, 305)
 DropdownContainer.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 DropdownContainer.BorderSizePixel = 1
 DropdownContainer.BorderColor3 = Color3.fromRGB(60, 60, 60)
@@ -273,7 +275,7 @@ end)
 -- Exit/Back Button
 local btnBack = Instance.new("TextButton", SettingsFrame)
 btnBack.Size = UDim2.new(0, 100, 0, 30)
-btnBack.Position = UDim2.new(0.5, -50, 0, 295) 
+btnBack.Position = UDim2.new(0.5, -50, 0, 335) 
 btnBack.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
 btnBack.TextColor3 = Color3.fromRGB(255, 255, 255)
 btnBack.Font = Enum.Font.SourceSansBold
@@ -321,6 +323,16 @@ end)
 btnCenter.MouseButton1Click:Connect(function()
     if aimMode == "Center" then aimMode = "None" btnCenter.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
     else aimMode = "Center" btnCenter.BackgroundColor3 = Color3.fromRGB(0, 255, 0) btnNearest.BackgroundColor3 = Color3.fromRGB(200, 0, 0) end
+end)
+
+btnToggleMode.MouseButton1Click:Connect(function()
+    isToggleMode = not isToggleMode
+    btnToggleMode.BackgroundColor3 = isToggleMode and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(200, 0, 0)
+    
+    -- Turn off active locking if mode changes
+    isAiming = false
+    currentLockedTarget = nil
+    LockIndicator.Enabled = false
 end)
 
 btnSticky.MouseButton1Click:Connect(function()
@@ -419,15 +431,28 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 
     if gpe then return end
     local activated = isKeyboardBind and (input.KeyCode == AIM_KEY) or (input.UserInputType == AIM_KEY)
-    if activated then isAiming = true end
+    
+    if activated then
+        if isToggleMode then
+            isAiming = not isAiming
+            if not isAiming then
+                currentLockedTarget = nil
+                LockIndicator.Enabled = false
+            end
+        else
+            isAiming = true
+        end
+    end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
-    local deactivated = isKeyboardBind and (input.KeyCode == AIM_KEY) or (input.UserInputType == AIM_KEY)
-    if deactivated then
-        isAiming = false
-        currentLockedTarget = nil 
-        LockIndicator.Enabled = false 
+    if not isToggleMode then
+        local deactivated = isKeyboardBind and (input.KeyCode == AIM_KEY) or (input.UserInputType == AIM_KEY)
+        if deactivated then
+            isAiming = false
+            currentLockedTarget = nil 
+            LockIndicator.Enabled = false 
+        end
     end
 end)
 
